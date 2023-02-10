@@ -1,6 +1,10 @@
 export type RequestMessage = {
   a: number,
-  b: number
+  b: number,
+  properties: {
+    correlationId: string,
+    replyTo: string
+  }
 }
 
 export type ResponseMessage = {

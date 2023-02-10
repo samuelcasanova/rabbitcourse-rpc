@@ -1,4 +1,4 @@
-import client, {Connection, Channel, Message} from 'amqplib'
+import client, {Connection, Channel, Message, ConsumeMessage} from 'amqplib'
 const username = 'guest'
 const password = 'guest'
 const hostname = 'localhost'
@@ -31,14 +31,19 @@ class Messaging {
     await channel.assertQueue(queueName)
   }
 
-  async sendToExchange(exchangeName: string, message: string, routingKey: string, channelName: string) {
+  async purgeQueue(queueName: string, channelName: string) {
     const channel = this.getChannel(channelName)
-    await channel.publish(exchangeName, routingKey, Buffer.from(message))
+    await channel.purgeQueue(queueName)
   }
 
-  async sendToQueue(queueName: string, message: string, channelName: string) {
+  sendToExchange(exchangeName: string, message: string, routingKey: string, channelName: string) {
     const channel = this.getChannel(channelName)
-    await channel.sendToQueue(queueName, Buffer.from(message))
+    channel.publish(exchangeName, routingKey, Buffer.from(message))
+  }
+
+  sendToQueue(queueName: string, message: string, channelName: string) {
+    const channel = this.getChannel(channelName)
+    channel.sendToQueue(queueName, Buffer.from(message))
   }
 
   async consumeFromQueue<T>(queueName: string, channelName: string) : Promise<T> {
