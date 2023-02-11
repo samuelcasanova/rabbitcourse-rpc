@@ -6,11 +6,12 @@ const port = 5672
 
 // based on https://www.cloudamqp.com/blog/how-to-run-rabbitmq-with-nodejs.html
 class Messaging {
-  private _connection: Connection
+  private _connection: Connection | null
   private _connectionString: string
   private _channels: Map<string, Channel>
 
   constructor() {
+    this._connection = null
     this._connectionString = `amqp://${username}:${password}@${hostname}:${port}`
     this._channels = new Map<string, Channel>()
   }
@@ -50,10 +51,22 @@ class Messaging {
     const channel = this.getChannel(channelName)
     const message = await new Promise((resolve) => {
       channel.consume(queueName, (message) => {
-        resolve(message)
+        const messageString = message?.content.toString()
+        const { a, b } = JSON.parse(messageString || '')
+        const { correlationId, replyTo } = message?.properties || {}
+        const requestMessage = { 
+          a, 
+          b, 
+          properties: { 
+            correlationId, 
+            replyTo 
+          }
+        }
+        resolve(requestMessage)
       })
     })
-    return message ? JSON.parse(message as string) : null
+    console.log('Message received: ', message)
+    return message as T
   }
 
   private getChannel(channelName: string) : Channel {
