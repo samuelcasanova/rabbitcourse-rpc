@@ -28,8 +28,17 @@ class Messaging {
   }
 
   async assertQueue(queueName: string, channelName: string) {
+    await this.assertQueueImpl(queueName, channelName)
+  }
+
+  async createNewExclusiveQueue(channelName: string): Promise<string> {
+    return await this.assertQueueImpl('', channelName, true)
+  }
+
+  private async assertQueueImpl(queueName: string, channelName: string, exclusive: boolean = false): Promise<string> {
     const channel = this.getChannel(channelName)
-    await channel.assertQueue(queueName)
+    const assertQueueResponse = await channel.assertQueue(queueName, { exclusive })
+    return assertQueueResponse.queue
   }
 
   async purgeQueue(queueName: string, channelName: string) {
@@ -37,14 +46,10 @@ class Messaging {
     await channel.purgeQueue(queueName)
   }
 
-  sendToExchange(exchangeName: string, message: string, routingKey: string, channelName: string) {
+  sendToQueue<T>(queueName: string, message: T, channelName: string) {
     const channel = this.getChannel(channelName)
-    channel.publish(exchangeName, routingKey, Buffer.from(message))
-  }
-
-  sendToQueue(queueName: string, message: string, channelName: string) {
-    const channel = this.getChannel(channelName)
-    channel.sendToQueue(queueName, Buffer.from(message))
+    const messageString = JSON.stringify(message)
+    channel.sendToQueue(queueName, Buffer.from(messageString))
   }
 
   async consumeFromQueue<T>(queueName: string, channelName: string) : Promise<T> {
@@ -54,12 +59,14 @@ class Messaging {
         const messageString = message?.content.toString()
         const { a, b } = JSON.parse(messageString || '')
         const { correlationId, replyTo } = message?.properties || {}
-        const requestMessage = { 
+        const { deliveryTag } = message?.fields || {}
+        const requestMessage = {
           a, 
           b, 
-          properties: { 
-            correlationId, 
-            replyTo 
+          properties: {
+            deliveryTag,
+            correlationId,
+            replyTo
           }
         }
         resolve(requestMessage)
@@ -67,6 +74,11 @@ class Messaging {
     })
     console.log('Message received: ', message)
     return message as T
+  }
+
+  ack(deliveryTag: number, channelName: string) {
+    const channel = this.getChannel(channelName)
+    channel.ack({ fields: { deliveryTag }} as Message, false)
   }
 
   private getChannel(channelName: string) : Channel {
