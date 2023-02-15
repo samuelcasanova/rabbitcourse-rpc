@@ -2,12 +2,16 @@ export type RequestMessage = {
   a: number,
   b: number,
   properties: {
-    deliveryTag: number
+    deliveryTag: number,
     correlationId: string,
     replyTo: string
   }
 }
 
 export type ResponseMessage = {
-  result: number
+  result: number,
+  properties: {
+    deliveryTag: number,
+    correlationId: string
+  }
 }

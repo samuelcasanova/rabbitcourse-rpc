@@ -23,6 +23,7 @@ class Consumer {
     }
     messaging.sendToQueue(rpcQueueName, requestMessage, channelName)
     const responseMessage = await messaging.consumeFromQueue<ResponseMessage>(exclusiveQueueName, channelName)
+    messaging.ack(responseMessage.properties.deliveryTag, channelName)
     logging.info(`Response result is ${responseMessage.result}`)
   }
 }

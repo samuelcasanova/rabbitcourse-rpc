@@ -7,7 +7,12 @@ const queueName = 'q.rpc'
 
 class Service {
   processMessage(request: RequestMessage) : ResponseMessage {
-    return { result: request.a + request.b }
+    return { 
+      result: request.a + request.b,
+      properties: {
+        correlationId: request.properties.correlationId
+      }
+    }
   }
 
   async run() {
@@ -15,7 +20,7 @@ class Service {
       log.info('Running Service')
       const messaging = new Messaging()
       log.info('Messaging initialized')
-      await messaging.createChannel(channelName)
+      await messaging.createChannel(channelName, 1)
       log.info(`Channel ${channelName} created`)
       await messaging.assertQueue(queueName, channelName)
       log.info(`Queue ${queueName} asserted`)

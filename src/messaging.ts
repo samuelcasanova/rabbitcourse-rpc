@@ -1,8 +1,11 @@
-import client, {Connection, Channel, Message, ConsumeMessage} from 'amqplib'
+import client, {Connection, Channel, ConsumeMessage} from 'amqplib'
+import { RequestMessage, ResponseMessage, Message } from './message'
 const username = 'guest'
 const password = 'guest'
 const hostname = 'localhost'
 const port = 5672
+
+type Converter = (original: ConsumeMessage) => Message
 
 // based on https://www.cloudamqp.com/blog/how-to-run-rabbitmq-with-nodejs.html
 class Messaging {
@@ -15,8 +18,8 @@ class Messaging {
     this._connectionString = `amqp://${username}:${password}@${hostname}:${port}`
     this._channels = new Map<string, Channel>()
   }
-    
-  async createChannel(channelName: string) {
+
+  async createChannel(channelName: string, prefetchLimit?: number) {
     if (this._channels.has(channelName)) {
       throw new Error(`Channel with name ${channelName} already exists`)
     }
@@ -24,6 +27,9 @@ class Messaging {
       this._connection = await client.connect(this._connectionString)
     }
     const channel = await this._connection.createChannel()
+    if (prefetchLimit) {
+      channel.prefetch(prefetchLimit)
+    }
     this._channels.set(channelName, channel)
   }
 
@@ -52,33 +58,47 @@ class Messaging {
     channel.sendToQueue(queueName, Buffer.from(messageString))
   }
 
-  async consumeFromQueue<T>(queueName: string, channelName: string) : Promise<T> {
+  async consumeFromQueue(queueName: string, channelName: string) : Promise<Message> {
     const channel = this.getChannel(channelName)
-    const message = await new Promise((resolve) => {
+    const message = await new Promise<Message>((resolve, reject) => {
       channel.consume(queueName, (message) => {
-        const messageString = message?.content.toString()
-        const { a, b } = JSON.parse(messageString || '')
+        const messageContentString = message?.content.toString()
+        const messageContent = JSON.parse(messageContentString || '')
         const { correlationId, replyTo } = message?.properties || {}
         const { deliveryTag } = message?.fields || {}
-        const requestMessage = {
-          a, 
-          b, 
-          properties: {
-            deliveryTag,
-            correlationId,
-            replyTo
+        if (messageContent.a && messageContent.b) {
+          const requestMessage: RequestMessage = {
+            a: messageContent.a,
+            b: messageContent.b,
+            properties: {
+              deliveryTag,
+              correlationId,
+              replyTo
+            }
           }
+          resolve(requestMessage)
         }
-        resolve(requestMessage)
+        if (messageContent.result) {
+          const responseMessage: ResponseMessage = {
+            result: messageContent.result,
+            properties: {
+              deliveryTag,
+              correlationId,
+              replyTo
+            }
+          }
+          resolve(responseMessage)
+        }
+        reject('Unknown message type')
       })
     })
     console.log('Message received: ', message)
-    return message as T
+    return message
   }
 
   ack(deliveryTag: number, channelName: string) {
     const channel = this.getChannel(channelName)
-    channel.ack({ fields: { deliveryTag }} as Message, false)
+    channel.ack({ fields: { deliveryTag }} as client.Message, false)
   }
 
   private getChannel(channelName: string) : Channel {
