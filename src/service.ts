@@ -1,11 +1,17 @@
 import { RequestMessage, ResponseMessage } from './message'
 import Messaging from './messaging'
-import log from './logging'
+import Logger from './logging'
 
 const channelName = 'service'
 const queueName = 'q.rpc'
 
 class Service {
+  _logger: Logger
+  
+  constructor() {
+    this._logger = new Logger('Service')
+  }
+
   processMessage(request: RequestMessage) : ResponseMessage {
     return { 
       result: request.a + request.b,
@@ -17,29 +23,30 @@ class Service {
 
   async run() {
     try {
-      log.info('Running Service')
       const messaging = new Messaging()
-      log.info('Messaging initialized')
       await messaging.createChannel(channelName, 1)
-      log.info(`Channel ${channelName} created`)
+      this._logger.info(`Channel ${channelName} created`)
       await messaging.assertQueue(queueName, channelName)
-      log.info(`Queue ${queueName} asserted`)
+      this._logger.info(`Queue ${queueName} asserted`)
       await messaging.purgeQueue(queueName, channelName)
-      log.info(`Queue ${queueName} purged`)
+      this._logger.info(`Queue ${queueName} purged`)
       while(true) {
-        const requestMessage = await messaging.consumeFromQueue<RequestMessage>(queueName, channelName)
-        log.info(`Message ${requestMessage} received from queue ${queueName} by the Service`)
+        const requestMessage = await messaging.consumeRequestMessageFromQueue(queueName, channelName)
+        this._logger.info(`Message ${requestMessage} received from queue ${queueName}`)
         const correlationId = requestMessage.properties.correlationId
         const replyTo = requestMessage.properties.replyTo
         const responseMessage = this.processMessage(requestMessage)
-        log.info(`Message ${requestMessage.properties.correlationId} processed to ${responseMessage} by the Service`)
+        this._logger.info(`Message ${requestMessage.properties.correlationId} processed to ${responseMessage}`)
         messaging.sendToQueue(replyTo, JSON.stringify(responseMessage), channelName)
-        log.info(`Message ${requestMessage.properties.correlationId} sent to queue ${queueName} by the Service`)
+        this._logger.info(`Message ${requestMessage.properties.correlationId} sent to queue ${queueName}`)
+        if (!requestMessage.properties.deliveryTag) {
+          throw new Error('Request message has no deliveryTag to ack')
+        }
         messaging.ack(requestMessage.properties.deliveryTag, channelName)
-        log.info(`Message ${requestMessage.properties.correlationId} ackowledged by the Service`)
+        this._logger.info(`Message ${requestMessage.properties.correlationId} ackowledged`)
       }
     } catch (error) {
-      log.error(error as Error)
+      this._logger.error(error as Error)
     }
   }
 }

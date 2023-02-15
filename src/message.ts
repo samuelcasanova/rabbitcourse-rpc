@@ -2,7 +2,7 @@ export type RequestMessage = {
   a: number,
   b: number,
   properties: {
-    deliveryTag: number,
+    deliveryTag?: number,
     correlationId: string,
     replyTo: string
   }
@@ -11,7 +11,7 @@ export type RequestMessage = {
 export type ResponseMessage = {
   result: number,
   properties: {
-    deliveryTag: number,
+    deliveryTag?: number,
     correlationId: string
   }
 }

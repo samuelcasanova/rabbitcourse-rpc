@@ -1,11 +1,9 @@
 import client, {Connection, Channel, ConsumeMessage} from 'amqplib'
-import { RequestMessage, ResponseMessage, Message } from './message'
+import { RequestMessage, ResponseMessage } from './message'
 const username = 'guest'
 const password = 'guest'
 const hostname = 'localhost'
 const port = 5672
-
-type Converter = (original: ConsumeMessage) => Message
 
 // based on https://www.cloudamqp.com/blog/how-to-run-rabbitmq-with-nodejs.html
 class Messaging {
@@ -58,18 +56,20 @@ class Messaging {
     channel.sendToQueue(queueName, Buffer.from(messageString))
   }
 
-  async consumeFromQueue(queueName: string, channelName: string) : Promise<Message> {
+  async consumeRequestMessageFromQueue(queueName: string, channelName: string) : Promise<RequestMessage> {
     const channel = this.getChannel(channelName)
-    const message = await new Promise<Message>((resolve, reject) => {
+    const message = await new Promise<RequestMessage>((resolve, reject) => {
       channel.consume(queueName, (message) => {
-        const messageContentString = message?.content.toString()
-        const messageContent = JSON.parse(messageContentString || '')
-        const { correlationId, replyTo } = message?.properties || {}
-        const { deliveryTag } = message?.fields || {}
-        if (messageContent.a && messageContent.b) {
-          const requestMessage: RequestMessage = {
-            a: messageContent.a,
-            b: messageContent.b,
+        if (!message) {
+          return reject('message is undefined')
+        } 
+        const messageContentString = message.content.toString()
+        const { a, b } = JSON.parse(messageContentString || '')
+        const { correlationId, replyTo } = message.properties || {}
+        const { deliveryTag } = message.fields || {}
+        const requestMessage: RequestMessage = {
+            a, 
+            b, 
             properties: {
               deliveryTag,
               correlationId,
@@ -77,19 +77,31 @@ class Messaging {
             }
           }
           resolve(requestMessage)
-        }
-        if (messageContent.result) {
-          const responseMessage: ResponseMessage = {
-            result: messageContent.result,
-            properties: {
-              deliveryTag,
-              correlationId,
-              replyTo
-            }
+      })
+    })
+    console.log('Message received: ', message)
+    return message
+  }
+
+  async consumeResponseMessageFromQueue(queueName: string, channelName: string) : Promise<ResponseMessage> {
+    const channel = this.getChannel(channelName)
+    const message = await new Promise<ResponseMessage>((resolve, reject) => {
+      channel.consume(queueName, (message) => {
+        if (!message) {
+          return reject('message is undefined')
+        } 
+        const messageContentString = message?.content.toString()
+        const { result } = JSON.parse(messageContentString || '')
+        const { correlationId } = message?.properties || {}
+        const { deliveryTag } = message?.fields || {}
+        const responseMessage: ResponseMessage = {
+          result,
+          properties: {
+            deliveryTag,
+            correlationId
           }
-          resolve(responseMessage)
         }
-        reject('Unknown message type')
+        resolve(responseMessage)
       })
     })
     console.log('Message received: ', message)
