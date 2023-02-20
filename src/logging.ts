@@ -5,19 +5,27 @@ export default class Logger {
     this._identifier = identifier
   }
   
-  log(message: string) {
-    console.log(`${this._identifier}: ${message}`)
+  log(message: string, ...args: any[]) {
+    if (args?.length) {
+      console.log(`${this._identifier}: ${message}`, args)
+    } else {
+      console.log(`${this._identifier}: ${message}`)
+    }
   }
 
-  info(message: string) {
-    this.log(message)
+  info(message: string, ...args: any[]) {
+    this.log(message, ...args)
   }
 
   error(error: Error) {
     console.error(`${this._identifier}: ${error.message}`, error)
   }
   
-  warn(message: string) {
-    console.warn(`${this._identifier}: ${message}`)
+  warn(message: string, ...args: any[]) {
+    if(args?.length) {
+      console.warn(`${this._identifier}: ${message}`, args)
+    } else {
+      console.warn(`${this._identifier}: ${message}`)
+    }
   }
 }

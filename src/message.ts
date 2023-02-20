@@ -1,17 +1,16 @@
-export type RequestMessage = {
-  a: number,
-  b: number,
+export type Message = {
   properties: {
     deliveryTag?: number,
     correlationId: string,
-    replyTo: string
+    replyTo?: string
   }
 }
 
-export type ResponseMessage = {
-  result: number,
-  properties: {
-    deliveryTag?: number,
-    correlationId: string
-  }
+export type RequestMessage = Message & {
+  a: number,
+  b: number
+}
+
+export type ResponseMessage = Message & {
+  result: number
 }

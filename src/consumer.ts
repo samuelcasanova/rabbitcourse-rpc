@@ -2,47 +2,74 @@ import { RequestMessage, ResponseMessage } from "./message"
 import Messaging from "./messaging"
 import { v4 as uuidv4 } from 'uuid'
 import Logger from './logging'
+import { wait } from "./common"
 
 const channelName = 'consumer'
 const rpcQueueName = 'q.rpc'
 
 class Consumer {
-  _name: string
-  _logger: Logger
+  private _messaging: Messaging
+  private _logger: Logger
 
-  constructor(name: string) {
-    this._name = name
-    this._logger = new Logger(`Consumer ${name}`)
+  constructor(messaging: Messaging, logger: Logger) {
+    this._messaging = messaging
+    this._logger = logger
   }
 
-  async run() {
+  async run(calls: number, timeBetweenCallsInMillis: number) {
     try {
-      this._logger.info('Running')
-      const messaging = new Messaging()
-      await messaging.createChannel(channelName)
-      this._logger.info(`Channel ${channelName} created`)
-      const exclusiveQueueName = await messaging.createNewExclusiveQueue(channelName)
-      this._logger.info(`Queue ${exclusiveQueueName} asserted`)
-      const correlationId = uuidv4()
-      const requestMessage: RequestMessage = {
-        a: Math.round(Math.random() * 100),
-        b: Math.round(Math.random() * 100),
-        properties: {
-          correlationId,
-          replyTo: exclusiveQueueName
-        }
+      const exclusiveQueueName = await this.initQueue()
+      for (let i = 0; i < calls; i++) {
+        const requestMessage = this.createRequestMessage(
+          Math.round(Math.random() * 100),
+          Math.round(Math.random() * 100),
+          exclusiveQueueName
+        )
+        this.sendRequest(requestMessage)
+        const responseMessage = await this.consumeResponse(exclusiveQueueName)
+        this.ackResponse(responseMessage)
+        await wait(timeBetweenCallsInMillis)
       }
-      messaging.sendToQueue(rpcQueueName, requestMessage, channelName)
-      this._logger.info(`Message with correlationId ${correlationId} sent to queue ${rpcQueueName}`)
-      const responseMessage = await messaging.consumeResponseMessageFromQueue(exclusiveQueueName, channelName)
-      if (!responseMessage.properties.deliveryTag) {
-        throw new Error(`Response message with correlationId ${correlationId} has no deliveryTag to ack`)
-      }
-      messaging.ack(responseMessage.properties.deliveryTag, channelName)
-      this._logger.info(`Response message with correlationId ${correlationId} has the result ${responseMessage.result}`)
     } catch (error) {
       this._logger.error(error as Error)
     }
+  }
+
+  public async initQueue() {
+    await this._messaging.createChannel(channelName)
+    this._logger.info(`Channel ${channelName} created`)
+    const exclusiveQueueName = await this._messaging.createNewExclusiveQueue(channelName)
+    this._logger.info(`Queue ${exclusiveQueueName} asserted`)
+    return exclusiveQueueName
+  }
+
+  public ackResponse(responseMessage: ResponseMessage) {
+    this._messaging.ack(responseMessage, channelName)
+    this._logger.info(`Response message with correlationId ${responseMessage.properties.correlationId} acknowledged`)
+  }
+
+  public async consumeResponse(exclusiveQueueName: string) {
+    const responseMessage = await this._messaging.consumeResponseMessageFromQueue(exclusiveQueueName, channelName)
+    this._logger.info(`Response message consumed from queue ${exclusiveQueueName}`, responseMessage)
+    return responseMessage
+  }
+
+  public sendRequest(requestMessage: RequestMessage) {
+    this._messaging.sendToQueue(rpcQueueName, requestMessage, channelName)
+    this._logger.info(`Request message sent to queue ${rpcQueueName}`, requestMessage)
+  }
+
+  public createRequestMessage(a: number, b: number, replyToQueue: string) {
+    const correlationId = uuidv4()
+    const requestMessage: RequestMessage = {
+      a,
+      b,
+      properties: {
+        correlationId,
+        replyTo: replyToQueue
+      }
+    }
+    return requestMessage
   }
 }
 

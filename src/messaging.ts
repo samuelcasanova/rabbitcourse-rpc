@@ -1,5 +1,6 @@
-import client, {Connection, Channel, ConsumeMessage} from 'amqplib'
-import { RequestMessage, ResponseMessage } from './message'
+import client, {Connection, Channel } from 'amqplib'
+import { RequestMessage, ResponseMessage, Message } from './message'
+import { wait } from './common'
 const username = 'guest'
 const password = 'guest'
 const hostname = 'localhost'
@@ -10,19 +11,26 @@ class Messaging {
   private _connection: Connection | null
   private _connectionString: string
   private _channels: Map<string, Channel>
+  private _isConnecting: boolean
 
   constructor() {
     this._connection = null
     this._connectionString = `amqp://${username}:${password}@${hostname}:${port}`
     this._channels = new Map<string, Channel>()
+    this._isConnecting = false
   }
 
   async createChannel(channelName: string, prefetchLimit?: number) {
     if (this._channels.has(channelName)) {
       throw new Error(`Channel with name ${channelName} already exists`)
     }
+    while(!this._connection && this._isConnecting) {
+      await wait(1)
+    }
     if (!this._connection) {
+      this._isConnecting = true
       this._connection = await client.connect(this._connectionString)
+      this._isConnecting = false
     }
     const channel = await this._connection.createChannel()
     if (prefetchLimit) {
@@ -50,10 +58,15 @@ class Messaging {
     await channel.purgeQueue(queueName)
   }
 
-  sendToQueue<T>(queueName: string, message: T, channelName: string) {
+  sendToQueue(queueName: string, message: Message, channelName: string) {
     const channel = this.getChannel(channelName)
     const messageString = JSON.stringify(message)
-    channel.sendToQueue(queueName, Buffer.from(messageString))
+    const { correlationId, replyTo } = message.properties
+    const options = {
+      ...( correlationId ? { correlationId } : {}),
+      ...( replyTo ? { replyTo } : {})
+    }
+    channel.sendToQueue(queueName, Buffer.from(messageString), options)
   }
 
   async consumeRequestMessageFromQueue(queueName: string, channelName: string) : Promise<RequestMessage> {
@@ -79,7 +92,6 @@ class Messaging {
           resolve(requestMessage)
       })
     })
-    console.log('Message received: ', message)
     return message
   }
 
@@ -104,13 +116,24 @@ class Messaging {
         resolve(responseMessage)
       })
     })
-    console.log('Message received: ', message)
     return message
   }
 
-  ack(deliveryTag: number, channelName: string) {
+  ack(message: Message, channelName: string) {
+    if (!message?.properties?.deliveryTag) {
+      throw new Error(`Message ${JSON.stringify(message)} has no deliveryTag to perform the ack`)
+    }
     const channel = this.getChannel(channelName)
-    channel.ack({ fields: { deliveryTag }} as client.Message, false)
+    channel.ack({ fields: { deliveryTag: message.properties.deliveryTag }} as client.Message, false)
+  }
+
+  async closeAll() {
+    await wait(50)
+    for (const channelEntry of this._channels.entries()) {
+      const [name, channel] = channelEntry
+      await channel.close()
+    }
+    await this._connection?.close()
   }
 
   private getChannel(channelName: string) : Channel {
