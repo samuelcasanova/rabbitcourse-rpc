@@ -27,6 +27,9 @@ class Consumer {
         )
         this.sendRequest(requestMessage)
         const responseMessage = await this.consumeResponse(exclusiveQueueName)
+        if (requestMessage.properties.correlationId !== responseMessage.properties.correlationId) {
+          throw new Error(`Request message sent had correlation id ${requestMessage.properties.correlationId} whereas response message has ${responseMessage.properties.correlationId}`)
+        }
         this.ackResponse(responseMessage)
         await wait(timeBetweenCallsInMillis)
       }

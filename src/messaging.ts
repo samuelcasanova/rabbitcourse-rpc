@@ -8,16 +8,21 @@ const port = 5672
 
 // based on https://www.cloudamqp.com/blog/how-to-run-rabbitmq-with-nodejs.html
 class Messaging {
-  private _connection: Connection | null
+  private _connection?: Connection
   private _connectionString: string
   private _channels: Map<string, Channel>
   private _isConnecting: boolean
+  private _requestResolver?: (message: RequestMessage) => void
+  private _requestConsumerRegistered: boolean
+  private _responseResolver?: (message: ResponseMessage) => void
+  private _responseConsumerRegistered: boolean
 
   constructor() {
-    this._connection = null
     this._connectionString = `amqp://${username}:${password}@${hostname}:${port}`
     this._channels = new Map<string, Channel>()
     this._isConnecting = false
+    this._requestConsumerRegistered = false
+    this._responseConsumerRegistered = false
   }
 
   async createChannel(channelName: string, prefetchLimit?: number) {
@@ -70,37 +75,46 @@ class Messaging {
   }
 
   async consumeRequestMessageFromQueue(queueName: string, channelName: string) : Promise<RequestMessage> {
-    const channel = this.getChannel(channelName)
-    const message = await new Promise<RequestMessage>((resolve, reject) => {
+    if (!this._requestConsumerRegistered) {
+      const channel = this.getChannel(channelName)
       channel.consume(queueName, (message) => {
         if (!message) {
-          return reject('message is undefined')
-        } 
+          throw new Error('request message is undefined')
+        }
         const messageContentString = message.content.toString()
         const { a, b } = JSON.parse(messageContentString || '')
         const { correlationId, replyTo } = message.properties || {}
         const { deliveryTag } = message.fields || {}
         const requestMessage: RequestMessage = {
-            a, 
-            b, 
-            properties: {
-              deliveryTag,
-              correlationId,
-              replyTo
-            }
+          a, 
+          b, 
+          properties: {
+            deliveryTag,
+            correlationId,
+            replyTo
           }
-          resolve(requestMessage)
-      })
+        }
+        if (this._requestResolver) {
+          this._requestResolver(requestMessage)
+        } else {
+          throw new Error('Received a request message but no consumer resolver was registered')
+        }
+      }, { noAck: false })
+      this._requestConsumerRegistered = true
+    }
+
+    const message = await new Promise<RequestMessage>(resolve => {
+      this._requestResolver = resolve
     })
     return message
   }
 
   async consumeResponseMessageFromQueue(queueName: string, channelName: string) : Promise<ResponseMessage> {
-    const channel = this.getChannel(channelName)
-    const message = await new Promise<ResponseMessage>((resolve, reject) => {
+    if (!this._responseConsumerRegistered) {
+      const channel = this.getChannel(channelName)
       channel.consume(queueName, (message) => {
         if (!message) {
-          return reject('message is undefined')
+          throw new Error('response message is undefined')
         } 
         const messageContentString = message?.content.toString()
         const { result } = JSON.parse(messageContentString || '')
@@ -113,8 +127,17 @@ class Messaging {
             correlationId
           }
         }
-        resolve(responseMessage)
-      })
+        if (this._responseResolver) {
+          this._responseResolver(responseMessage)
+        } else {
+          throw new Error('Received a response message but no consumer resolver was registered')
+        }
+        this._responseConsumerRegistered = true
+      }, { noAck: false })
+    }
+
+    const message = await new Promise<ResponseMessage>(resolve => {
+      this._responseResolver = resolve
     })
     return message
   }
@@ -130,7 +153,7 @@ class Messaging {
   async closeAll() {
     await wait(50)
     for (const channelEntry of this._channels.entries()) {
-      const [name, channel] = channelEntry
+      const [_, channel] = channelEntry
       await channel.close()
     }
     await this._connection?.close()
