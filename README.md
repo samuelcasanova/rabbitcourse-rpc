@@ -41,7 +41,7 @@ You will need a RabbitMQ instance in localhost port 5672 with default username/p
    ```sh
    npm install
    ```
-4. Start the service
+3. Start the service
    ```sh
    npm start
    ```
